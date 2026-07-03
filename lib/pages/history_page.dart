@@ -204,6 +204,45 @@ class _HistoryPageState extends State<HistoryPage> {
     }
   }
 
+  Future<void> _onRefresh() async {
+    try {
+      final perkembangan = await api.getPerkembangan();
+      final prediksi = await api.getPrediksi();
+
+      final List<HistoryItem> history = [];
+
+      for (final item in perkembangan) {
+        String decision = "-";
+
+        try {
+          final prediksiItem = prediksi.firstWhere(
+            (p) => p.idPerkembangan == item.id,
+          );
+
+          decision = prediksiItem.decision;
+        } catch (_) {}
+
+        history.add(HistoryItem(perkembangan: item, decision: decision));
+      }
+
+      history.sort(
+        (a, b) => DateTime.parse(
+          b.perkembangan.waktu,
+        ).compareTo(DateTime.parse(a.perkembangan.waktu)),
+      );
+
+      if (mounted) {
+        setState(() {
+          allData = history;
+          applySearch(searchController.text);
+          errorMessage = null;
+        });
+      }
+    } catch (_) {
+      // Gagal refresh — data lama tetap ditampilkan
+    }
+  }
+
   void applySearch(String query) {
     query = query.toLowerCase();
 
@@ -671,25 +710,35 @@ class _HistoryPageState extends State<HistoryPage> {
                   ),
 
                   Expanded(
-                    child:
+                    child: RefreshIndicator(
+                      onRefresh: _onRefresh,
+                      color: AppColors.primaryGreen,
+                      child:
                         filteredData.isEmpty
-                            ? Center(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    const SizedBox(height: 40),
-                                    Icon(Icons.inbox_outlined, size: 60, color: Colors.grey.shade300),
-                                    const SizedBox(height: 12),
-                                    Text(
-                                      "Tidak ada data",
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.grey.shade500,
+                            ? ListView(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                children: [
+                                  SizedBox(
+                                    height: MediaQuery.of(context).size.height * 0.4,
+                                    child: Center(
+                                      child: Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Icon(Icons.inbox_outlined, size: 60, color: Colors.grey.shade300),
+                                          const SizedBox(height: 12),
+                                          Text(
+                                            "Tidak ada data",
+                                            style: TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.w600,
+                                              color: Colors.grey.shade500,
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
-                                  ],
-                                ),
+                                  ),
+                                ],
                               )
                             : ListView.builder(
                               itemCount: currentItems.length,
@@ -939,6 +988,7 @@ class _HistoryPageState extends State<HistoryPage> {
                                 );
                               },
                             ),
+                    ),
                   ),
 
                   Container(
