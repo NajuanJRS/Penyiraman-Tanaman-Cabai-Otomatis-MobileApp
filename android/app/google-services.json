@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "682526605847",
+    "project_id": "caba-iot",
+    "storage_bucket": "caba-iot.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:682526605847:android:20bdf21f9e15ff28ad1252",
+        "android_client_info": {
+          "package_name": "com.cabaiot.smartgarden"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB2sQY79LbXtfT8Q0NIydiY2jzaRBg6_Xc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
