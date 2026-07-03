@@ -33,8 +33,12 @@ class _DashboardPageState extends State<DashboardPage> {
 
   String selectedFilter = "1 Bulan";
 
-  late Future<List<Perkembangan>> _perkembanganFuture;
-  late Future<List<Prediksi>> _predicsiFuture;
+  // Data state — setiap section punya loading independen
+  List<Perkembangan>? _perkembanganData;
+  List<Prediksi>? _prediksiData;
+  bool _isLoadingPerkembangan = true;
+  bool _isLoadingPrediksi = true;
+  String? _errorMessage;
 
   String getErrorMessage(dynamic error) {
     final text = error.toString().toLowerCase();
@@ -103,7 +107,7 @@ class _DashboardPageState extends State<DashboardPage> {
   void initState() {
     super.initState();
 
-    _loadData();
+    _loadAllData();
 
     initNotifications();
 
@@ -112,41 +116,62 @@ class _DashboardPageState extends State<DashboardPage> {
     getFcmToken();
   }
 
-  void _loadData() {
-    _perkembanganFuture = api.getPerkembangan();
-    _predicsiFuture = api.getPrediksi();
+  // Memuat kedua API secara paralel — masing-masing update UI saat selesai
+  Future<void> _loadAllData() async {
+    _loadPerkembangan();
+    _loadPrediksi();
   }
 
-  void _refresh() {
-    setState(() {
-      _loadData();
-    });
+  Future<void> _loadPerkembangan() async {
+    try {
+      final data = await api.getPerkembangan();
+      if (mounted) {
+        setState(() {
+          _perkembanganData = data;
+          _isLoadingPerkembangan = false;
+          _errorMessage = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoadingPerkembangan = false;
+          if (_perkembanganData == null) {
+            _errorMessage = getErrorMessage(e);
+          }
+        });
+      }
+    }
+  }
+
+  Future<void> _loadPrediksi() async {
+    try {
+      final data = await api.getPrediksi();
+      if (mounted) {
+        setState(() {
+          _prediksiData = data;
+          _isLoadingPrediksi = false;
+        });
+
+        // Cek notifikasi setelah data prediksi dimuat
+        if (data.isNotEmpty) {
+          checkWateringNotification(data.last.decision);
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoadingPrediksi = false;
+        });
+      }
+    }
   }
 
   Future<void> _onRefresh() async {
-    final perkembanganFuture = api.getPerkembangan();
-    final predicsiFuture = api.getPrediksi();
-
-    try {
-      await Future.wait([perkembanganFuture, predicsiFuture]);
-    } catch (_) {
-      // Futures will contain the error, FutureBuilder will handle display
-    }
-
-    if (mounted) {
-      setState(() {
-        _perkembanganFuture = perkembanganFuture;
-        _predicsiFuture = predicsiFuture;
-      });
-    }
-  }
-
-  String _getGreeting() {
-    final hour = DateTime.now().hour;
-    if (hour < 11) return "Selamat Pagi \u{1F44B}";
-    if (hour < 15) return "Selamat Siang \u{1F44B}";
-    if (hour < 18) return "Selamat Sore \u{1F44B}";
-    return "Selamat Malam \u{1F44B}";
+    await Future.wait([
+      _loadPerkembangan(),
+      _loadPrediksi(),
+    ]);
   }
 
   Future<void> getFcmToken() async {
@@ -224,292 +249,7 @@ class _DashboardPageState extends State<DashboardPage> {
         centerTitle: false,
       ),
 
-      body: FutureBuilder<List<Perkembangan>>(
-        future: _perkembanganFuture,
-
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          if (snapshot.hasError) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-
-                  children: [
-                    const Icon(Icons.cloud_off, size: 90, color: Colors.red),
-
-                    const SizedBox(height: 20),
-
-                    const Text(
-                      "Gagal memuat dashboard",
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-
-                    const SizedBox(height: 10),
-
-                    Text(
-                      getErrorMessage(snapshot.error),
-                      textAlign: TextAlign.center,
-                    ),
-
-                    const SizedBox(height: 20),
-
-                    ElevatedButton.icon(
-                      onPressed: () {
-                        _refresh();
-                      },
-
-                      icon: const Icon(Icons.refresh),
-
-                      label: const Text("Coba Lagi"),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }
-
-          if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.sensors_off, size: 80, color: Colors.grey.shade300),
-                  const SizedBox(height: 16),
-                  Text(
-                    "Tidak ada data sensor",
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey.shade600,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    "Data sensor belum tersedia saat ini",
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey.shade400,
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }
-
-          final latest = snapshot.data!.last;
-
-          return RefreshIndicator(
-            onRefresh: _onRefresh,
-            color: AppColors.primaryGreen,
-            child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: SensorCard(
-                        title: "Kelembapan\nTanah",
-                        color: AppColors.soilBrown,
-                        value: "${latest.kelembapanTanah} %",
-                        icon: Icons.water_drop,
-                      ),
-                    ),
-
-                    const SizedBox(width: 12),
-
-                    Expanded(
-                      child: SensorCard(
-                        title: "Suhu",
-                        color: AppColors.temperatureOrange,
-                        value: "${latest.suhu} °C",
-                        icon: Icons.thermostat,
-                      ),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 12),
-
-                Row(
-                  children: [
-                    Expanded(
-                      child: SensorCard(
-                        title: "Kelembapan\nUdara",
-                        color: AppColors.waterBlue,
-                        value: "${latest.kelembapanUdara} %",
-                        icon: Icons.air,
-                      ),
-                    ),
-
-                    const SizedBox(width: 12),
-
-                    Expanded(
-                      child: FutureBuilder<List<Prediksi>>(
-                        future: _predicsiFuture,
-
-                        builder: (context, prediksiSnapshot) {
-                          if (!prediksiSnapshot.hasData) {
-                            return SensorCard(
-                              title: "Status\nPompa",
-                              color: Colors.grey,
-                              value: "...",
-                              icon: Icons.bolt,
-                            );
-                          }
-
-                          final latestPrediksi = prediksiSnapshot.data!.last;
-
-                          WidgetsBinding.instance.addPostFrameCallback((_) {
-                            checkWateringNotification(latestPrediksi.decision);
-                          });
-
-                          final isPumpActive =
-                              latestPrediksi.decision.toLowerCase() == "siram";
-
-                          final statusPompa = isPumpActive ? "Aktif" : "Mati";
-
-                          return SensorCard(
-                            title: "Status\nPompa",
-
-                            color:
-                                isPumpActive
-                                    ? AppColors.primaryGreen
-                                    : AppColors.dangerRed,
-
-                            value: statusPompa,
-
-                            icon: Icons.bolt,
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 20),
-
-                SizedBox(
-                  height: 50,
-
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-
-                    children: [
-                      const SizedBox(width: 16),
-
-                      buildFilterChip("1 Hari"),
-
-                      const SizedBox(width: 8),
-
-                      buildFilterChip("3 Hari"),
-
-                      const SizedBox(width: 8),
-
-                      buildFilterChip("1 Minggu"),
-
-                      const SizedBox(width: 8),
-
-                      buildFilterChip("2 Minggu"),
-
-                      const SizedBox(width: 8),
-
-                      buildFilterChip("3 Minggu"),
-
-                      const SizedBox(width: 8),
-
-                      buildFilterChip("1 Bulan"),
-
-                      const SizedBox(width: 8),
-
-                      buildFilterChip("Maks"),
-
-                      const SizedBox(width: 16),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 10),
-
-                HumidityChart(data: snapshot.data!, filter: selectedFilter),
-
-                const SizedBox(height: 20),
-
-                TemperatureChart(data: snapshot.data!, filter: selectedFilter),
-
-                const SizedBox(height: 20),
-
-                FutureBuilder<List<Prediksi>>(
-                  future: _predicsiFuture,
-
-                  builder: (context, prediksiSnapshot) {
-                    if (prediksiSnapshot.connectionState ==
-                        ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-
-                    if (prediksiSnapshot.hasError) {
-                      return Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(20),
-
-                          child: Column(
-                            children: [
-                              const Icon(
-                                Icons.error_outline,
-                                color: Colors.red,
-                                size: 50,
-                              ),
-
-                              const SizedBox(height: 10),
-
-                              const Text("Data prediksi tidak tersedia"),
-                            ],
-                          ),
-                        ),
-                      );
-                    }
-
-                    if (!prediksiSnapshot.hasData ||
-                        prediksiSnapshot.data!.isEmpty) {
-                      return const Card(
-                        child: Padding(
-                          padding: EdgeInsets.all(20),
-
-                          child: Text("Belum ada data prediksi"),
-                        ),
-                      );
-                    }
-
-                    final latestPrediksi = prediksiSnapshot.data!.last;
-
-                    return DecisionTreeCard(
-                      tanah: latest.kelembapanTanah,
-                      udara: latest.kelembapanUdara,
-                      suhu: latest.suhu,
-                      decision: latestPrediksi.decision,
-                    );
-                  },
-                ),
-
-                const SizedBox(height: 20),
-              ],
-            ),
-            ),
-          );
-        },
-      ),
+      body: _buildBody(),
 
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
@@ -556,6 +296,334 @@ class _DashboardPageState extends State<DashboardPage> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildBody() {
+    // Error state — hanya ditampilkan jika tidak ada data sama sekali
+    if (_errorMessage != null && _perkembanganData == null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+
+            children: [
+              const Icon(Icons.cloud_off, size: 90, color: Colors.red),
+
+              const SizedBox(height: 20),
+
+              const Text(
+                "Gagal memuat dashboard",
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+              ),
+
+              const SizedBox(height: 10),
+
+              Text(
+                _errorMessage!,
+                textAlign: TextAlign.center,
+              ),
+
+              const SizedBox(height: 20),
+
+              ElevatedButton.icon(
+                onPressed: () {
+                  setState(() {
+                    _isLoadingPerkembangan = true;
+                    _isLoadingPrediksi = true;
+                    _errorMessage = null;
+                  });
+                  _loadAllData();
+                },
+
+                icon: const Icon(Icons.refresh),
+
+                label: const Text("Coba Lagi"),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // UI progresif — tampilkan layout segera, isi data per-section
+    return RefreshIndicator(
+      onRefresh: _onRefresh,
+      color: AppColors.primaryGreen,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+
+        child: Column(
+          children: [
+            // Section 1: Sensor cards
+            _buildSensorSection(),
+
+            const SizedBox(height: 20),
+
+            // Section 2: Filter chips
+            SizedBox(
+              height: 50,
+
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+
+                children: [
+                  const SizedBox(width: 16),
+
+                  buildFilterChip("1 Hari"),
+
+                  const SizedBox(width: 8),
+
+                  buildFilterChip("3 Hari"),
+
+                  const SizedBox(width: 8),
+
+                  buildFilterChip("1 Minggu"),
+
+                  const SizedBox(width: 8),
+
+                  buildFilterChip("2 Minggu"),
+
+                  const SizedBox(width: 8),
+
+                  buildFilterChip("3 Minggu"),
+
+                  const SizedBox(width: 8),
+
+                  buildFilterChip("1 Bulan"),
+
+                  const SizedBox(width: 8),
+
+                  buildFilterChip("Maks"),
+
+                  const SizedBox(width: 16),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 10),
+
+            // Section 3: Charts
+            _buildChartsSection(),
+
+            const SizedBox(height: 20),
+
+            // Section 4: Decision tree
+            _buildDecisionSection(),
+
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ========================
+  // SECTION BUILDERS
+  // ========================
+
+  Widget _buildSensorSection() {
+    final hasPerkembangan =
+        _perkembanganData != null && _perkembanganData!.isNotEmpty;
+
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: hasPerkembangan
+                  ? SensorCard(
+                      title: "Kelembapan\nTanah",
+                      color: AppColors.soilBrown,
+                      value: "${_perkembanganData!.last.kelembapanTanah} %",
+                      icon: Icons.water_drop,
+                    )
+                  : _buildPlaceholderCard(),
+            ),
+
+            const SizedBox(width: 12),
+
+            Expanded(
+              child: hasPerkembangan
+                  ? SensorCard(
+                      title: "Suhu",
+                      color: AppColors.temperatureOrange,
+                      value: "${_perkembanganData!.last.suhu} °C",
+                      icon: Icons.thermostat,
+                    )
+                  : _buildPlaceholderCard(),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 12),
+
+        Row(
+          children: [
+            Expanded(
+              child: hasPerkembangan
+                  ? SensorCard(
+                      title: "Kelembapan\nUdara",
+                      color: AppColors.waterBlue,
+                      value: "${_perkembanganData!.last.kelembapanUdara} %",
+                      icon: Icons.air,
+                    )
+                  : _buildPlaceholderCard(),
+            ),
+
+            const SizedBox(width: 12),
+
+            Expanded(
+              child: _buildStatusPompaCard(),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPlaceholderCard() {
+    return Card(
+      child: SizedBox(
+        height: 135,
+        child: Center(
+          child: SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(
+              strokeWidth: 2.5,
+              color: Colors.grey.shade300,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusPompaCard() {
+    if (_isLoadingPrediksi || _prediksiData == null || _prediksiData!.isEmpty) {
+      return SensorCard(
+        title: "Status\nPompa",
+        color: Colors.grey,
+        value: "...",
+        icon: Icons.bolt,
+      );
+    }
+
+    final latestPrediksi = _prediksiData!.last;
+    final isPumpActive = latestPrediksi.decision.toLowerCase() == "siram";
+    final statusPompa = isPumpActive ? "Aktif" : "Mati";
+
+    return SensorCard(
+      title: "Status\nPompa",
+
+      color: isPumpActive ? AppColors.primaryGreen : AppColors.dangerRed,
+
+      value: statusPompa,
+
+      icon: Icons.bolt,
+    );
+  }
+
+  Widget _buildChartsSection() {
+    if (_isLoadingPerkembangan) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 40),
+        child: Center(
+          child: Column(
+            children: [
+              CircularProgressIndicator(
+                color: Colors.grey.shade300,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                "Memuat grafik...",
+                style: TextStyle(
+                  color: Colors.grey.shade500,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_perkembanganData == null || _perkembanganData!.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 40),
+          child: Column(
+            children: [
+              Icon(Icons.sensors_off, size: 80, color: Colors.grey.shade300),
+              const SizedBox(height: 16),
+              Text(
+                "Tidak ada data sensor",
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                "Data sensor belum tersedia saat ini",
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey.shade400,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        HumidityChart(data: _perkembanganData!, filter: selectedFilter),
+
+        const SizedBox(height: 20),
+
+        TemperatureChart(data: _perkembanganData!, filter: selectedFilter),
+      ],
+    );
+  }
+
+  Widget _buildDecisionSection() {
+    if (_isLoadingPrediksi) {
+      return const SizedBox.shrink();
+    }
+
+    if (_prediksiData == null || _prediksiData!.isEmpty) {
+      return const Card(
+        child: Padding(
+          padding: EdgeInsets.all(20),
+
+          child: Text("Belum ada data prediksi"),
+        ),
+      );
+    }
+
+    if (_perkembanganData == null || _perkembanganData!.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final latest = _perkembanganData!.last;
+    final latestPrediksi = _prediksiData!.last;
+
+    return DecisionTreeCard(
+      tanah: latest.kelembapanTanah,
+      udara: latest.kelembapanUdara,
+      suhu: latest.suhu,
+      decision: latestPrediksi.decision,
     );
   }
 }
