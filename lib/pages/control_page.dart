@@ -101,8 +101,21 @@ class _ControlPageState extends State<ControlPage> {
     super.dispose();
   }
 
-  Future<void> toggleOtomatis(bool currentState) async {
-    final aktifkan = !currentState;
+  Future<void> toggleOtomatis(Kontrol kontrol) async {
+    final aktifkan = !kontrol.modeOtomatis;
+
+    // Mencegah mematikan otomatis jika manual juga mati (no standby)
+    if (!aktifkan && !kontrol.modeManual) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.orange,
+          content: Text(
+            "Mode Otomatis tidak dapat dimatikan. Sistem harus memiliki satu mode aktif.",
+          ),
+        ),
+      );
+      return;
+    }
 
     final confirm = await showConfirmDialog(
       title: "Konfirmasi",
@@ -111,7 +124,12 @@ class _ControlPageState extends State<ControlPage> {
 
     if (!confirm) return;
     try {
-      await api.updateKontrol(id: 1, modeManual: false, modeOtomatis: aktifkan);
+      // Jika mengaktifkan otomatis → matikan manual
+      await api.updateKontrol(
+        id: 1,
+        modeManual: aktifkan ? false : kontrol.modeManual,
+        modeOtomatis: aktifkan,
+      );
 
       if (!mounted) return;
       showSuccess(
@@ -133,23 +151,30 @@ class _ControlPageState extends State<ControlPage> {
     }
   }
 
-  Future<void> toggleManual(bool currentState) async {
-    final aktifkan = !currentState;
+  Future<void> toggleManual(Kontrol kontrol) async {
+    final aktifkan = !kontrol.modeManual;
 
     final confirm = await showConfirmDialog(
       title: "Konfirmasi",
-      message: aktifkan ? "Aktifkan Mode Manual?" : "Matikan Mode Manual?",
+      message: aktifkan
+          ? "Aktifkan Mode Manual?"
+          : "Matikan Mode Manual?\nMode Otomatis akan diaktifkan secara otomatis.",
     );
 
     if (!confirm) return;
     try {
-      await api.updateKontrol(id: 1, modeManual: aktifkan, modeOtomatis: false);
+      // Jika mematikan manual → otomatis aktifkan mode otomatis
+      await api.updateKontrol(
+        id: 1,
+        modeManual: aktifkan,
+        modeOtomatis: aktifkan ? false : true,
+      );
 
       if (!mounted) return;
       showSuccess(
         aktifkan
             ? "Mode Manual berhasil diaktifkan"
-            : "Mode Manual berhasil dinonaktifkan",
+            : "Mode Manual dinonaktifkan, Mode Otomatis diaktifkan",
       );
 
       refresh();
@@ -240,16 +265,16 @@ class _ControlPageState extends State<ControlPage> {
             child: Column(
               children: [
                 _buildModeCard(
-                  title: "Mode Penyiraman Otomatis",
+                  title: "Mode Otomatis",
                   active: kontrol.modeOtomatis,
-                  onPressed: () => toggleOtomatis(kontrol.modeOtomatis),
+                  onPressed: () => toggleOtomatis(kontrol),
                 ),
 
                 const SizedBox(height: 20),
                 _buildModeCard(
-                  title: "Mode Penyiraman Manual",
+                  title: "Mode Manual",
                   active: kontrol.modeManual,
-                  onPressed: () => toggleManual(kontrol.modeManual),
+                  onPressed: () => toggleManual(kontrol),
                 ),
 
               ],
@@ -387,7 +412,7 @@ class _ControlPageState extends State<ControlPage> {
                   ),
 
                   child: Text(
-                    active ? "Matikan Mode" : "Nyalakan Mode",
+                    active ? "Matikan Mode" : "Aktifkan Mode",
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,

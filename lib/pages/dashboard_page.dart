@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../models/perkembangan.dart';
 import '../models/prediksi.dart';
+import '../models/kontrol.dart';
 import '../theme/app_colors.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -36,8 +37,10 @@ class _DashboardPageState extends State<DashboardPage> {
   // Data state — setiap section punya loading independen
   List<Perkembangan>? _perkembanganData;
   List<Prediksi>? _prediksiData;
+  Kontrol? _kontrolData;
   bool _isLoadingPerkembangan = true;
   bool _isLoadingPrediksi = true;
+  bool _isLoadingKontrol = true;
   String? _errorMessage;
 
   String getErrorMessage(dynamic error) {
@@ -116,10 +119,11 @@ class _DashboardPageState extends State<DashboardPage> {
     getFcmToken();
   }
 
-  // Memuat kedua API secara paralel — masing-masing update UI saat selesai
+  // Memuat semua API secara paralel — masing-masing update UI saat selesai
   Future<void> _loadAllData() async {
     _loadPerkembangan();
     _loadPrediksi();
+    _loadKontrol();
   }
 
   Future<void> _loadPerkembangan() async {
@@ -167,10 +171,29 @@ class _DashboardPageState extends State<DashboardPage> {
     }
   }
 
+  Future<void> _loadKontrol() async {
+    try {
+      final data = await api.getKontrol();
+      if (mounted) {
+        setState(() {
+          _kontrolData = data;
+          _isLoadingKontrol = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoadingKontrol = false;
+        });
+      }
+    }
+  }
+
   Future<void> _onRefresh() async {
     await Future.wait([
       _loadPerkembangan(),
       _loadPrediksi(),
+      _loadKontrol(),
     ]);
   }
 
@@ -508,7 +531,10 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Widget _buildStatusPompaCard() {
-    if (_isLoadingPrediksi || _prediksiData == null || _prediksiData!.isEmpty) {
+    // Masih loading semua data yang diperlukan
+    final stillLoading = (_isLoadingPrediksi && _prediksiData == null) &&
+                         (_isLoadingKontrol && _kontrolData == null);
+    if (stillLoading) {
       return SensorCard(
         title: "Status\nPompa",
         color: Colors.grey,
@@ -517,8 +543,13 @@ class _DashboardPageState extends State<DashboardPage> {
       );
     }
 
-    final latestPrediksi = _prediksiData!.last;
-    final isPumpActive = latestPrediksi.decision.toLowerCase() == "siram";
+    // Cek apakah pompa aktif: mode_manual ON atau prediksi = siram
+    final isManualOn = _kontrolData?.modeManual == true;
+    final isPrediksiSiram = _prediksiData != null &&
+        _prediksiData!.isNotEmpty &&
+        _prediksiData!.last.decision.toLowerCase() == "siram";
+
+    final isPumpActive = isManualOn || isPrediksiSiram;
     final statusPompa = isPumpActive ? "Aktif" : "Mati";
 
     return SensorCard(
